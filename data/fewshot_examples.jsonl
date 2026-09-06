@@ -1,0 +1,24 @@
+{"question": "一共有多少订单", "sql": "SELECT COUNT(*) AS 订单总数 FROM orders", "tables": ["orders"]}
+{"question": "各订单状态的订单数量分布", "sql": "SELECT status AS 订单状态, COUNT(*) AS 订单数 FROM orders GROUP BY status", "tables": ["orders"]}
+{"question": "每个月的订单量是多少", "sql": "SELECT strftime(created_at, '%Y-%m') AS 月份, COUNT(*) AS 订单数 FROM orders GROUP BY 月份 ORDER BY 月份", "tables": ["orders"]}
+{"question": "每个城市的订单数量排名", "sql": "SELECT u.city AS 城市, COUNT(*) AS 订单数 FROM orders o JOIN users u ON u.user_id = o.user_id GROUP BY u.city ORDER BY 订单数 DESC", "tables": ["orders", "users"]}
+{"question": "销量最好的商品有哪些", "sql": "SELECT p.name AS 商品名, SUM(oi.quantity) AS 销量 FROM order_items oi JOIN products p ON p.product_id = oi.product_id GROUP BY p.name ORDER BY 销量 DESC LIMIT 10", "tables": ["order_items", "products"]}
+{"question": "各品类的销售额是多少", "sql": "SELECT c.name AS 品类, SUM(oi.quantity * oi.unit_price) AS 销售额 FROM order_items oi JOIN products p ON p.product_id = oi.product_id JOIN categories c ON c.category_id = p.category_id GROUP BY c.name ORDER BY 销售额 DESC", "tables": ["order_items", "products", "categories"]}
+{"question": "退款订单的总金额是多少", "sql": "SELECT SUM(amount) AS 退款金额 FROM orders WHERE status = '已退款'", "tables": ["orders"]}
+{"question": "女性用户一共有多少人", "sql": "SELECT COUNT(*) AS 女性用户数 FROM users WHERE gender = '女'", "tables": ["users"]}
+{"question": "平台的平均客单价", "sql": "SELECT AVG(amount) AS 平均客单价 FROM orders WHERE status != '已退款'", "tables": ["orders"]}
+{"question": "消费最高的10个用户是谁", "sql": "SELECT u.name AS 用户, SUM(o.amount) AS 消费总额 FROM orders o JOIN users u ON u.user_id = o.user_id WHERE o.status != '已退款' GROUP BY u.name ORDER BY 消费总额 DESC LIMIT 10", "tables": ["orders", "users"]}
+{"question": "每个月新增多少注册用户", "sql": "SELECT strftime(registered_at, '%Y-%m') AS 月份, COUNT(*) AS 新增用户 FROM users GROUP BY 月份 ORDER BY 月份", "tables": ["users"]}
+{"question": "库存不足100件的商品有多少", "sql": "SELECT COUNT(*) AS 商品数 FROM products WHERE stock < 100", "tables": ["products"]}
+{"question": "2024年全年收入是多少", "sql": "SELECT SUM(amount) AS 年收入 FROM orders WHERE created_at >= TIMESTAMP '2024-01-01' AND created_at < TIMESTAMP '2025-01-01' AND status != '已退款'", "tables": ["orders"]}
+{"question": "每个季度的订单量分布", "sql": "SELECT EXTRACT(year FROM created_at) AS 年份, EXTRACT(quarter FROM created_at) AS 季度, COUNT(*) AS 订单数 FROM orders GROUP BY 年份, 季度 ORDER BY 年份, 季度", "tables": ["orders"]}
+{"question": "至少购买过2次的用户数量", "sql": "SELECT COUNT(*) AS 复购用户数 FROM (SELECT user_id FROM orders GROUP BY user_id HAVING COUNT(*) >= 2)", "tables": ["orders"]}
+{"question": "一共有多少种商品", "sql": "SELECT COUNT(*) AS 商品种类数 FROM products", "tables": ["products"]}
+{"question": "已完成订单占全部订单的比例", "sql": "SELECT AVG(CASE WHEN status = '已完成' THEN 1.0 ELSE 0.0 END) AS 完成占比 FROM orders", "tables": ["orders"]}
+{"question": "北京的订单量是多少", "sql": "SELECT COUNT(*) AS 北京订单数 FROM orders o JOIN users u ON u.user_id = o.user_id WHERE u.city = '北京'", "tables": ["orders", "users"]}
+{"question": "每笔订单平均多少钱", "sql": "SELECT AVG(amount) AS 平均订单金额 FROM orders WHERE status != '已退款'", "tables": ["orders"]}
+{"question": "商品的平均定价是多少", "sql": "SELECT AVG(price) AS 平均定价 FROM products", "tables": ["products"]}
+{"question": "每个月的退款订单数量变化", "sql": "SELECT strftime(created_at, '%Y-%m') AS 月份, COUNT(*) AS 退款订单数 FROM orders WHERE status = '已退款' GROUP BY 月份 ORDER BY 月份", "tables": ["orders"]}
+{"question": "各个城市分别有多少用户", "sql": "SELECT city AS 城市, COUNT(*) AS 用户数 FROM users GROUP BY city ORDER BY 用户数 DESC", "tables": ["users"]}
+{"question": "卖得最贵的商品是什么", "sql": "SELECT name AS 商品名, price AS 定价 FROM products ORDER BY price DESC LIMIT 1", "tables": ["products"]}
+{"question": "每个品类的商品库存总量", "sql": "SELECT c.name AS 品类, SUM(p.stock) AS 总库存 FROM products p JOIN categories c ON c.category_id = p.category_id GROUP BY c.name ORDER BY 总库存 DESC", "tables": ["products", "categories"]}

@@ -1,0 +1,55 @@
+[project]
+name = "datapilot"
+version = "0.1.0"
+description = "DataPilot — 基于 MCP + LangGraph 的中文 ChatBI 数据分析助手（Text-to-SQL / 混合检索 RAG / QLoRA 微调 / 系统评估）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "DataPilot Contributors" }]
+keywords = ["chatbi", "text-to-sql", "mcp", "langgraph", "rag", "qlora"]
+
+dependencies = [
+    "openai>=1.40",
+    "httpx>=0.27",
+    "duckdb>=1.0",
+    "jieba>=0.42",
+    "rank-bm25>=0.2.2",
+    "langgraph>=0.2.40",
+    "langchain-core>=0.3",
+    "mcp>=1.2.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "streamlit>=1.39",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+training = [
+    "torch>=2.3",
+    "transformers>=4.46",
+    "peft>=0.13",
+    "trl>=0.11",
+    "datasets>=3.0",
+    "accelerate>=1.0",
+    "bitsandbytes>=0.44",
+]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["server"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
