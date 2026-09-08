@@ -64,6 +64,16 @@ streamlit run app/streamlit_app.py
 
 # HTTP API
 uvicorn server.api.main:app --port 8000   # POST /api/query {"question": "每月订单量"}
+
+# 或一键 Docker 化（API :8000 + 演示界面 :8501）
+docker compose up --build
+```
+
+## 🧪 验证与测试
+
+```bash
+pytest                      # 33 项单测（mock 模式，完全离线）
+python scripts/mcp_smoke.py # 真实拉起 MCP stdio server，验证协议握手与工具调用
 ```
 
 ## 📊 评估与消融
@@ -113,6 +123,8 @@ datapilot/
 ├── eval/              # mini 评测 / CSpider runner（EX+recall+修复率+延迟+Token）/ 数据下载
 ├── training/          # SFT 数据构造 / QLoRA 训练 / 合并导出
 ├── app/               # Streamlit 演示
+├── scripts/           # mcp_smoke.py（MCP 协议冒烟测试）
+├── Dockerfile / docker-compose.yml   # API + 演示界面一键部署
 ├── tests/             # pytest（mock 模式离线全绿）
 └── docs/              # 实验报告 / 简历话术 / 微调指南
 ```

@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATAPILOT_DB_PATH=/app/data/ecommerce.duckdb
+    command: ["uvicorn", "server.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  dashboard:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATAPILOT_DB_PATH=/app/data/ecommerce.duckdb
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
