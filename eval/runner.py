@@ -19,7 +19,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from eval.cspider import CSpiderExample, has_order_by, load_dataset, results_equal
+from eval.cspider import CSpiderExample, extract_order_by, has_order_by, load_dataset, results_equal
 from server.agents.pipeline import ChatBIPipeline
 from server.core.database import SQLiteAdapter
 from server.core.embeddings import EmbeddingClient, build_embedder
@@ -136,8 +136,16 @@ def run_evaluation(
             try:
                 gold_rows = [list(r) for r in adapter.execute_sql(ex.gold_sql, max_rows=5000).rows]
                 pred_rows = [list(r) for r in state["result"]["rows"]]
-                ordered = has_order_by(ex.gold_sql) and has_order_by(state.get("sql", ""))
-                hit = int(results_equal(pred_rows, gold_rows, ordered=ordered))
+                pred_sql = state.get("sql", "")
+                ordered = has_order_by(ex.gold_sql) and has_order_by(pred_sql)
+                gold_keys = extract_order_by(ex.gold_sql) if ordered else None
+                pred_keys = extract_order_by(pred_sql) if ordered else None
+                hit = int(
+                    results_equal(
+                        pred_rows, gold_rows, ordered=ordered,
+                        order_keys_a=pred_keys, order_keys_b=gold_keys,
+                    )
+                )
             except Exception:
                 hit = 0
             finally:

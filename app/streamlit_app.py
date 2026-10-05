@@ -1,6 +1,6 @@
-"""DataPilot ChatBI 演示界面（Streamlit）。
+"""DataPilot ChatBI 演示界面(Streamlit)。
 
-启动：streamlit run app/streamlit_app.py
+启动:streamlit run app/streamlit_app.py
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import streamlit as st
 st.set_page_config(page_title="DataPilot · ChatBI 演示", page_icon="📊", layout="wide")
 
 st.title("📊 DataPilot · 中文 ChatBI 数据分析助手")
-st.caption("自然语言 → SQL → 图表与结论 ｜ MCP 工具集 + LangGraph 多阶段 Agent + 混合检索 RAG")
+st.caption("自然语言 → SQL → 图表与结论 | MCP 工具集 + LangGraph 多阶段 Agent + 混合检索 RAG")
 
 
 @st.cache_resource(show_spinner="初始化流水线（加载演示库 + 构建检索索引）…")
@@ -44,8 +44,8 @@ with st.sidebar:
             st.session_state.pending_question = q
     st.divider()
     st.caption(
-        "技术栈：GLM-4-Flash / LangGraph / FastMCP / DuckDB / BGE-M3\n\n"
-        "无 API Key 时自动降级为 mock 模式（固定演示 SQL）"
+        "技术栈:GLM-4.7-Flash / LangGraph / FastMCP / DuckDB / BGE-M3\n\n"
+        "无 API Key 时自动降级为 mock 模式（固定演示 SQL)"
     )
 
 if "messages" not in st.session_state:

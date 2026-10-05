@@ -33,9 +33,22 @@ class LLMClient:
 
     def __init__(self, config: LLMConfig):
         self.config = config
-        from openai import OpenAI  # 延迟导入，mock 模式无需安装网络栈
+        from openai import (  # 延迟导入，mock 模式无需安装网络栈
+            APIConnectionError,
+            APITimeoutError,
+            InternalServerError,
+            OpenAI,
+            RateLimitError,
+        )
 
         self._client = OpenAI(api_key=config.api_key, base_url=config.base_url)
+        # 可重试的瞬时错误：限流 429 + 服务端 5xx（含 502/503/504）+ 网络抖动/超时
+        self._retryable = (
+            RateLimitError,
+            InternalServerError,
+            APIConnectionError,
+            APITimeoutError,
+        )
 
     def chat(
         self,
@@ -44,12 +57,27 @@ class LLMClient:
         max_tokens: int = 1024,
     ) -> LLMResponse:
         start = time.perf_counter()
-        resp = self._client.chat.completions.create(
-            model=self.config.model,
-            messages=messages,  # type: ignore[arg-type]
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        # GLM-4.7-Flash 等智谱"混合思考模型"默认开启思考：思维链写入
+        # reasoning_content，可能占满 max_tokens 导致 content 为空（澄清/生成节点
+        # 拿不到 JSON/SQL）。关闭思考后答案直接落在 content，与旧非思考模型行为一致。
+        extra_body = {"thinking": {"type": "disabled"}} if self.config.provider == "zhipu" else None
+        # 免费档 GLM-4.7-Flash 有并发/频率限制（错误码 1302/1305）且偶发 5xx 服务错误
+        # （错误码 1234），对瞬时错误统一指数退避重试，避免单次抖动打断整轮评估
+        # （重试等待计入该次调用延迟，如实反映真实耗时）。
+        for attempt in range(8):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.config.model,
+                    messages=messages,  # type: ignore[arg-type]
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_body=extra_body,
+                )
+                break
+            except self._retryable:
+                if attempt == 7:
+                    raise
+                time.sleep(min(2 ** attempt, 60))  # 1,2,4,8,16,32,60s
         latency_ms = int((time.perf_counter() - start) * 1000)
         usage = resp.usage
         return LLMResponse(

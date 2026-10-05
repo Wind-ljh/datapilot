@@ -72,7 +72,7 @@ def load_settings() -> Settings:
         provider=_env("DATAPILOT_LLM_PROVIDER", "zhipu"),
         api_key=_env("DATAPILOT_LLM_API_KEY"),
         base_url=_env("DATAPILOT_LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
-        model=_env("DATAPILOT_LLM_MODEL", "glm-4-flash"),
+        model=_env("DATAPILOT_LLM_MODEL", "glm-4.7-flash"),
     )
     llm2 = LLMConfig(
         provider=_env("DATAPILOT_LLM2_PROVIDER", "siliconflow"),

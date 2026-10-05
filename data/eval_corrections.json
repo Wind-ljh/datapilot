@@ -1,0 +1,24 @@
+{
+  "dataset": "mini_eval",
+  "scope": "仅修正已确认的「gold 排除退款但题目未要求排除」的题；原始 benchmark（data/mini_eval.jsonl）保持不变。修正通过独立 override 文件加载，可追溯、可复现。详见 docs/evaluation_notes.md。",
+  "corrections": [
+    {
+      "index": 6,
+      "question": "每月的订单量和收入趋势",
+      "issue": "退款口径：gold 过滤 status != '已退款'，但题目未要求排除退款订单。",
+      "gold_sql_override": "SELECT strftime(created_at, '%Y-%m') AS 月份, COUNT(*) AS 订单数, SUM(amount) AS 收入 FROM orders GROUP BY 月份 ORDER BY 月份"
+    },
+    {
+      "index": 16,
+      "question": "手机数码品类每个月的收入趋势",
+      "issue": "退款口径：gold 过滤 o.status != '已退款'，但题目未要求排除退款订单。",
+      "gold_sql_override": "SELECT strftime(o.created_at, '%Y-%m') AS 月份, SUM(oi.quantity * oi.unit_price) AS 销售额 FROM order_items oi JOIN products p ON p.product_id = oi.product_id JOIN categories c ON c.category_id = p.category_id JOIN orders o ON o.order_id = oi.order_id WHERE c.name = '手机数码' GROUP BY 月份 ORDER BY 月份"
+    },
+    {
+      "index": 35,
+      "question": "各季度的收入对比",
+      "issue": "退款口径：gold 过滤 status != '已退款'，但题目未要求排除退款订单。",
+      "gold_sql_override": "SELECT EXTRACT(year FROM created_at) AS 年份, EXTRACT(quarter FROM created_at) AS 季度, SUM(amount) AS 收入 FROM orders GROUP BY 年份, 季度 ORDER BY 年份, 季度"
+    }
+  ]
+}

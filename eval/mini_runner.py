@@ -18,7 +18,8 @@ import json
 import time
 from pathlib import Path
 
-from eval.cspider import has_order_by, results_equal
+from eval.annotations import apply_corrections, load_corrections
+from eval.cspider import extract_order_by, has_order_by, results_equal
 from server.agents.pipeline import ChatBIPipeline
 from server.core.config import get_settings
 from server.core.database import DuckDBAdapter
@@ -71,7 +72,8 @@ def run_mini_evaluation(
         dialect="DuckDB",
     )
 
-    eval_pairs = load_pairs(MINI_EVAL_PATH, limit)
+    corrections = load_corrections()
+    eval_pairs = apply_corrections(load_pairs(MINI_EVAL_PATH, limit), corrections)
     n = ex_hits = exec_ok = repair_used = repair_success = 0
     latencies: list[float] = []
     details: list[dict] = []
@@ -87,12 +89,17 @@ def run_mini_evaluation(
         if executed:
             try:
                 gold = adapter.execute_sql(pair["sql"], max_rows=5000)
-                ordered = has_order_by(pair["sql"]) and has_order_by(state.get("sql", ""))
+                pred_sql = state.get("sql", "")
+                ordered = has_order_by(pair["sql"]) and has_order_by(pred_sql)
+                gold_keys = extract_order_by(pair["sql"]) if ordered else None
+                pred_keys = extract_order_by(pred_sql) if ordered else None
                 hit = int(
                     results_equal(
                         [list(r) for r in state["result"]["rows"]],
                         [list(r) for r in gold.rows],
                         ordered=ordered,
+                        order_keys_a=pred_keys,
+                        order_keys_b=gold_keys,
                     )
                 )
             except Exception:
@@ -103,6 +110,7 @@ def run_mini_evaluation(
         if state.get("repair_round", 0) > 0:
             repair_used += 1
             repair_success += int(executed)
+        corr = pair.get("_correction")
         details.append(
             {
                 "i": i,
@@ -115,6 +123,8 @@ def run_mini_evaluation(
                 "degraded": state.get("degraded", False),
                 "wall_ms": round(wall_ms, 1),
                 "tokens": state.get("prompt_tokens", 0) + state.get("completion_tokens", 0),
+                "gold_corrected": bool(corr),
+                "correction_note": corr["issue"] if corr else "",
             }
         )
 
