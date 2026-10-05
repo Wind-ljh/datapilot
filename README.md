@@ -1,155 +1,182 @@
-# DataPilot 📊 — 基于 MCP + LangGraph 的中文 ChatBI 数据分析助手
+# DataPilot
 
-> 用中文自然语言提问 → 自动选择表与字段 → 生成并自修复 SQL → 执行 → 输出图表与结论。
->
-> 一个覆盖 **Text-to-SQL、混合检索 RAG、MCP 工具协议、LangGraph 多阶段 Agent、QLoRA 微调、系统化评估** 的完整工程项目。
+A Chinese ChatBI / Text-to-SQL assistant: ask questions in natural language and get charts and conclusions, backed by read-only SQL execution.
 
-[![CI](https://github.com/YOUR_USERNAME/datapilot/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+> Chinese question → auto-select tables & columns → generate and self-repair SQL → execute read-only → chart + conclusion.
 
-<!-- 演示 GIF：录制方法见 docs/experiments.md 末尾 -->
-![demo](docs/demo.gif)
+## Overview
 
-## ✨ 核心设计（也是面试讲点）
+DataPilot is an end-to-end ChatBI project covering **Text-to-SQL**, **hybrid-retrieval RAG**, the **MCP tool protocol**, a **LangGraph multi-stage agent**, and **systematic evaluation**. It runs against a small, deterministic e-commerce demo database (DuckDB) and works fully offline in mock mode for development and CI.
 
-| 设计 | 说明 |
-|---|---|
-| **多阶段 Workflow + 局部 Agent 回环** | 主干流程固定（澄清→检索→生成→执行→报告，可控可测、省 Token），仅在 SQL 校验/执行失败时交还控制权给 LLM 自修复（≤3 轮）——Workflow 与 Agent 的取舍有明确判断 |
-| **两处"非常规 RAG"** | 检索对象不是文档，而是 ① schema 元数据（Schema Linking，压缩候选表列）② 相似问-SQL 对（Few-shot 对齐输出风格）；BM25 + 向量双路召回，RRF 融合 |
-| **MCP 工具协议** | 数据库能力封装为 5 个标准 MCP 工具（实现一次，进程内直调 + stdio server 两种接入方式），可被任何 MCP 客户端复用 |
-| **只读安全防护** | 语句数/起始关键字/词边界危险关键字三重校验 + `EXPLAIN` 预检（不执行数据即可发现语法与列名错误），为自修复回环提供信号 |
-| **系统化评估** | 执行准确率 EX、可执行率、表级 recall@k、自修复成功率、P50/P95 延迟、每查询 Token 消耗，全部支持一键消融对比（`--no-linking` / `--no-fewshot` / `--max-repair 0` / `--llm llm2`） |
-| **零厂商绑定** | 所有 LLM/Embedding 走 OpenAI 兼容协议，GLM-4-Flash / SiliconFlow / 自建 vLLM 仅靠环境变量切换 |
-| **离线可运行** | 内置确定性 Mock LLM 与 Mock Embedding，无 API Key 可跑通全链路、单测与 CI |
+## Features
 
-## 🏗 架构
+- **Multi-stage workflow with a local agent loop** — the main path is a fixed pipeline (clarify → schema linking → few-shot → generate → validate → execute → report), which is controllable, testable, and token-efficient. Control is handed back to the LLM only when SQL validation or execution fails, for self-repair (≤ 3 rounds).
+- **Two kinds of retrieval, neither of them documents** — retrieval targets ① schema metadata (schema linking compresses candidate tables/columns) and ② similar question→SQL pairs (few-shot alignment). BM25 + vector dual-recall, fused with RRF.
+- **MCP tool protocol** — the database capability is exposed as 5 standard MCP tools (FastMCP), reachable both in-process and via a stdio server, so any MCP client can reuse them.
+- **Read-only safety** — statement-count, leading-keyword, and word-boundary keyword checks, plus an `EXPLAIN` pre-check that finds syntax/column errors without executing; the failure signal also feeds the repair loop.
+- **Systematic evaluation** — execution accuracy (EX), exec rate, table recall@k, self-repair success, P50/P95 latency, and per-query tokens, with one-command ablations.
+- **Vendor-agnostic** — all LLM/embedding calls use OpenAI-compatible endpoints; switch providers with environment variables only.
+- **Offline-runnable** — a built-in deterministic mock LLM/embedding lets the full pipeline, tests, and CI run with no API key.
+
+## Architecture
 
 ```mermaid
 flowchart TB
-    U[用户中文问题] --> C[澄清 Agent<br/>缺维度/时间则追问]
-    C -->|可回答| R[Schema Linking<br/>BM25+向量 RRF 选表选列]
-    C -->|需澄清| U
-    R --> F[Few-shot 检索<br/>相似问-SQL 对]
-    F --> G[SQL 生成<br/>GLM-4-Flash / 微调模型]
-    G --> V{EXPLAIN + 只读校验}
-    V -->|失败| P[自修复 ≤3 轮<br/>错误信息回填] --> G
-    V -->|通过| E[执行 SQL<br/>DuckDB 只读]
-    E -->|报错| P
-    E -->|成功| B[报告 Agent<br/>结论 + 图表选型]
-    B --> O[结论 + 图表 + 指标]
+    U[Chinese question] --> C[Clarify<br/>ask only when ambiguous]
+    C -->|answerable| R[Schema Linking<br/>BM25 + vector + RRF]
+    C -->|needs clarification| U
+    R --> F[Few-shot retrieval<br/>similar question→SQL pairs]
+    F --> G[SQL generation<br/>GLM-4.7-Flash]
+    G --> V{EXPLAIN + read-only check}
+    V -->|fail| P[Self-repair ≤ 3 rounds<br/>error fed back] --> G
+    V -->|pass| E[Execute SQL<br/>DuckDB read-only]
+    E -->|error| P
+    E -->|ok| B[Report<br/>conclusion + chart type]
+    B --> O[Conclusion + chart + metrics]
 
-    subgraph MCP 工具层（实现一次，两种接入）
+    subgraph MCP tools
         T1[list_tables] T2[get_schema] T3[sample_rows] T4[validate_sql] T5[execute_sql]
     end
-    R -.->|进程内直调| T2
-    E -.->|进程内直调| T5
+    R -.->|in-process| T2
+    E -.->|in-process| T5
 ```
 
-## 🚀 快速开始
+## How It Works
+
+1. **Clarify** — decide whether the question is unambiguous under the given schema; default to a sensible interpretation rather than over-asking.
+2. **Schema linking** — hybrid retrieval (BM25 + vector, RRF) selects the relevant tables/columns into a compact schema.
+3. **Few-shot retrieval** — retrieve similar question→SQL pairs to align output style (JOIN conventions, aliases, `LIMIT`).
+4. **Generate** — the LLM writes a single SQL statement.
+5. **Validate** — `EXPLAIN` + read-only keyword checks, without executing.
+6. **Repair loop (≤ 3 rounds)** — on failure, the error is fed back and the SQL is regenerated.
+7. **Execute & report** — the SQL runs read-only; the result is summarized with a chart suggestion.
+
+## Demo
+
+![demo](docs/demo.png)
+
+> `docs/demo.png` visualizes a **real end-to-end query result**: GLM-4.7-Flash generated the SQL and DuckDB executed it (category revenue ranking, 10 rows). It is rendered from the actual captured result — not a screenshot of the full Streamlit UI.
+
+The interactive UI is `app/streamlit_app.py` (Streamlit), with example questions, chat-style interaction, expandable SQL, charts (bar/line/area), and run metrics.
+
+## Installation
+
+Requires Python ≥ 3.10.
 
 ```bash
-# 1. 安装
+pip install -e .
+# development extras (pytest + ruff)
+pip install -e ".[dev]"
+# optional: QLoRA training dependencies (see Notes)
+pip install -e ".[training]"
+```
+
+## Configuration
+
+All settings come from environment variables (see `.env.example`). No API key is committed to the repository.
+
+| Variable | Description |
+|---|---|
+| `DATAPILOT_LLM_PROVIDER` | Primary LLM provider (default `zhipu`) |
+| `DATAPILOT_LLM_API_KEY` | Primary LLM API key |
+| `DATAPILOT_LLM_BASE_URL` | Primary LLM base URL (default `https://open.bigmodel.cn/api/paas/v4`) |
+| `DATAPILOT_LLM_MODEL` | Primary LLM model (default `glm-4.7-flash`) |
+| `DATAPILOT_LLM2_PROVIDER` / `DATAPILOT_LLM2_API_KEY` / `DATAPILOT_LLM2_BASE_URL` / `DATAPILOT_LLM2_MODEL` | Secondary LLM endpoint for ablation (default SiliconFlow `Qwen/Qwen2.5-7B-Instruct`) |
+| `DATAPILOT_EMBED_PROVIDER` / `DATAPILOT_EMBED_API_KEY` / `DATAPILOT_EMBED_BASE_URL` / `DATAPILOT_EMBED_MODEL` | Embedding endpoint (default SiliconFlow `BAAI/bge-m3`) |
+| `DATAPILOT_DB_PATH` | Database path (default `data/ecommerce.duckdb`) |
+| `DATAPILOT_RETRIEVAL_TOP_K` | Retrieval top-k (default `5`) |
+| `DATAPILOT_MAX_REPAIR_ROUNDS` | Max SQL repair rounds (default `3`) |
+| `DATAPILOT_MOCK` | `1` to force offline mock mode (default `0`) |
+
+## Quick Start
+
+```bash
+# 1. install
 pip install -e .
 
-# 2. 生成中文电商演示库（约 10 秒，10 万行订单）
+# 2. build the demo database (~100k orders, deterministic seed)
 python -m server.core.seed_data --rows 100000
 
-# 3a. 无 API Key？直接以 mock 模式体验（确定性演示 SQL）
-set DATAPILOT_MOCK=1 && streamlit run app/streamlit_app.py
+# 3a. offline mock mode (no API key; deterministic demo SQL)
+DATAPILOT_MOCK=1 streamlit run app/streamlit_app.py      # Windows: set DATAPILOT_MOCK=1 && streamlit run app/streamlit_app.py
 
-# 3b. 有 API Key（GLM-4-Flash 完全免费）？复制配置后体验完整链路
-copy .env.example .env   # 填入 DATAPILOT_LLM_API_KEY
+# 3b. real mode: copy .env.example to .env and fill in DATAPILOT_LLM_API_KEY
 streamlit run app/streamlit_app.py
 
 # HTTP API
 uvicorn server.api.main:app --port 8000   # POST /api/query {"question": "每月订单量"}
 
-# 或一键 Docker 化（API :8000 + 演示界面 :8501）
+# or Docker (API :8000 + demo :8501)
 docker compose up --build
 ```
 
-## 🧪 验证与测试
+## Evaluation
+
+The evaluation measures execution accuracy (EX), exec rate, self-repair success, P50/P95 latency, and tokens over a 40-question mini benchmark on the demo database (real LLM, not mock).
 
 ```bash
-pytest                      # 33 项单测（mock 模式，完全离线）
-python scripts/mcp_smoke.py # 真实拉起 MCP stdio server，验证协议握手与工具调用
-```
-
-## 📊 评估与消融
-
-```bash
-# 开箱即用的 mini 评测（40 道演示库金标题）
 python -m eval.mini_runner --label baseline
-
-# 消融实验（每条命令产出一个可对比的指标行）
 python -m eval.mini_runner --no-linking   --label no-linking
 python -m eval.mini_runner --no-fewshot   --label no-fewshot
 python -m eval.mini_runner --max-repair 0 --label no-repair
-python -m eval.mini_runner --llm llm2     --label qwen7b      # 对照模型
+python -m eval.mini_runner --llm llm2     --label qwen7b
 
-# CSpider 权威基准（中文 text-to-SQL，需手动下载数据）
-python -m eval.download_cspider    # 镜像失效时打印官网下载指引
+# CSpider benchmark (Chinese text-to-SQL; download data first)
+python -m eval.download_cspider
 python -m eval.runner --split dev --limit 300 --label baseline
 ```
 
-结果报告写入 `eval/results/*.json`，汇总方法见 [docs/experiments.md](docs/experiments.md)。
+Results are written to `eval/results/*.json`. The numbers below are read from those JSON files.
 
-## 🔧 QLoRA 微调（免费算力可复现）
+| Config | EX | Exec rate | Repair success | P50 | P95 | Avg tokens |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline (GLM-4.7-Flash, full pipeline) | **0.800** (32/40) | 0.975 | 0.833 | 8.4s | 39.7s | 1294 |
+| − schema linking | 0.800 | 1.000 | 1.000 | 40.6s | 266.2s | 1224 |
+| − few-shot | 0.400 | 0.975 | 0.750 | 119.8s | 307.9s | 1070 |
+| − self-repair | 0.700 | 0.825 | — | 198.0s | 424.3s | 1079 |
+| Qwen2.5-7B (free API) | **0.850** | 0.950 | 0.333 | 6.6s | 14.1s | 1322 |
 
-```bash
-# ① 构造 SFT 数据（CSpider train → ChatBI 对话格式，按库划分 train/val 防泄漏）
-python -m training.build_sft_data
+> - **Latency caveat**: P50/P95 are wall-clock time and are contaminated by free-tier API rate-limiting on some rows (no-linking / no-fewshot / no-repair were throttled, hence 40–424s). They do not represent model compute speed and should not be compared across rows. Unthrottled runs are P50 ≈ 6–8s.
+> - **Ablation takeaways**: few-shot is the largest gain (0.800 → 0.400 without it); self-repair is second (0.800 → 0.700, exec rate 0.975 → 0.825); schema linking shows no gain on this small schema (0.800 vs 0.800); Qwen2.5-7B is within noise of baseline (0.850 vs 0.800).
+> - A small number of gold annotations that filtered refunds while the question did not ask for it were corrected through a documented override file (`data/eval_corrections.json`, loaded by `eval/annotations.py`). The original benchmark `data/mini_eval.jsonl` is untouched. See `docs/evaluation_notes.md`.
 
-# ② ModelScope 免费 GPU / Colab T4 上执行
-python -m training.train_qlora --model Qwen/Qwen2.5-Coder-3B-Instruct
-
-# ③ 合并导出 + vLLM 部署脚本
-python -m training.merge_export
-```
-
-完整复现步骤（含免费算力申请）见 [docs/fine-tuning.md](docs/fine-tuning.md)。
-
-## 📁 项目结构
+## Project Structure
 
 ```
 datapilot/
 ├── server/
-│   ├── core/          # config / LLM 客户端 / Embedding / DuckDB+SQLite 适配 / 种子数据
-│   ├── mcp_tools/     # FastMCP 工具层（ToolCore 单一实现）
-│   ├── retrieval/     # 混合检索（BM25+向量 RRF）/ Schema Linking / Few-shot
-│   ├── agents/        # LangGraph 流水线：澄清→linking→生成→自修复回环→报告
-│   └── api/           # FastAPI 入口
-├── eval/              # mini 评测 / CSpider runner（EX+recall+修复率+延迟+Token）/ 数据下载
-├── training/          # SFT 数据构造 / QLoRA 训练 / 合并导出
-├── app/               # Streamlit 演示
-├── scripts/           # mcp_smoke.py（MCP 协议冒烟测试）
-├── Dockerfile / docker-compose.yml   # API + 演示界面一键部署
-├── tests/             # pytest（mock 模式离线全绿）
-└── docs/              # 实验报告 / 简历话术 / 微调指南
+│   ├── core/          # config, LLM client, embeddings, DuckDB/SQLite adapters, seed data
+│   ├── mcp_tools/     # FastMCP tools (single ToolCore implementation)
+│   ├── retrieval/     # hybrid retrieval (BM25+vector RRF), schema linking, few-shot
+│   ├── agents/        # LangGraph pipeline: clarify → linking → generate → repair → report
+│   └── api/           # FastAPI entry point
+├── eval/              # mini benchmark + CSpider runner (EX, recall, repair, latency, tokens)
+├── training/          # SFT data build / QLoRA training / merge-export (not trained — see Notes)
+├── app/               # Streamlit demo
+├── scripts/           # mcp_smoke.py (MCP protocol smoke test)
+├── tests/             # pytest (offline mock mode)
+├── data/              # benchmark files (mini_eval.jsonl, fewshot_examples.jsonl)
+├── docs/              # evaluation notes, experiments, fine-tuning guide
+├── Dockerfile / docker-compose.yml
+└── pyproject.toml / .env.example / .gitignore
 ```
 
-## 📈 结果
+## Limitations
 
-> 跑通后用 `python -m eval.mini_runner --label <exp>` 的输出更新此表（方法见 docs/experiments.md）。
+- **QLoRA is not trained** — the `training/` scripts are complete but have never been run: no adapter, no results, no fine-tuning comparison (see Notes).
+- **Evaluation scope** — the headline EX numbers come from a 40-question mini benchmark on the demo database, not the full CSpider dev set (which is not run here).
+- **Latency noise** — free-tier rate-limiting contaminates P50/P95 on some rows.
+- **Demo image** — `docs/demo.png` is a static visualization of one real query, not an animated recording of the full UI.
 
-| 配置 | mini 评测 EX | 可执行率 | P50 延迟 | 平均 Token |
-|---|---|---|---|---|
-| baseline（GLM-4-Flash + 全量能力） | 待填 | 待填 | 待填 | 待填 |
-| − schema linking | 待填 | 待填 | 待填 | 待填 |
-| − few-shot | 待填 | 待填 | 待填 | 待填 |
-| − 自修复 | 待填 | 待填 | 待填 | 待填 |
-| 对照：Qwen2.5-7B（免费 API） | 待填 | 待填 | 待填 | 待填 |
-| QLoRA 微调 Qwen2.5-Coder-3B（CSpider dev） | 待填 | — | — | — |
+## Notes
 
-## 🗺 Roadmap
+### Experimental Training Pipeline
 
-- [ ] Streamlit 演示 GIF
-- [ ] CSpider dev 300 题完整消融数据
-- [ ] LoRA adapter 发布到 ModelScope
-- [ ] 幻觉检测：结果为空时的归因（schema 误选 vs 数据本身为空）
-- [ ] 多轮上下文记忆（指代消解："那 6 月呢？"）
+The repository includes a QLoRA fine-tuning pipeline under `training/`. The pipeline has not been trained or evaluated and is not included in the reported experimental results.
+
+- The CI workflow (ruff + seed data + pytest, mock mode) is defined in `.github/workflows/ci.yml`.
+- Evaluation methodology and correction rationale: `docs/evaluation_notes.md`, `docs/final_evaluation_report.md`.
 
 ## License
 
-MIT
+[MIT](LICENSE)

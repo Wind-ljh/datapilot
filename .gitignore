@@ -39,3 +39,4 @@ Thumbs.db
 
 # 评测结果（个人实验产物，不入库）
 eval/results/
+pre_eval_cleanup/
