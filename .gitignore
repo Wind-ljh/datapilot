@@ -40,3 +40,7 @@ Thumbs.db
 # 评测结果（个人实验产物，不入库）
 eval/results/
 pre_eval_cleanup/
+
+# 求职/收尾材料（仅保留本地，不入库）
+docs/resume-bullets.md
+docs/final_release_report.md
