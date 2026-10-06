@@ -9,6 +9,7 @@ class ChatBIState(TypedDict, total=False):
     # 输入
     question: str
     history: list[dict]  # 多轮历史 [{"role": ..., "content": ...}]
+    context: dict  # 上一轮结构化分析上下文（问题/SQL/结果/图表/表），用于追问的增量修改
 
     # 澄清
     need_clarify: bool
@@ -42,10 +43,13 @@ class ChatBIState(TypedDict, total=False):
     trace: list[str]
 
 
-def new_state(question: str, history: list[dict] | None = None) -> dict[str, Any]:
+def new_state(
+    question: str, history: list[dict] | None = None, context: dict | None = None
+) -> dict[str, Any]:
     return {
         "question": question,
         "history": history or [],
+        "context": context or {},
         "need_clarify": False,
         "clarify_question": "",
         "repair_round": 0,

@@ -23,6 +23,7 @@ data/*.duckdb
 data/*.sqlite
 data/cspider/
 data/raw/
+data/conversations.json
 training/output/
 training/checkpoints/
 *.adapter/

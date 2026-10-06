@@ -21,6 +21,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from server.agents.context import context_to_prompt, rows_to_markdown
 from server.agents.prompts import (
     CLARIFY_SYSTEM,
     GENERATE_SYSTEM,
@@ -36,16 +37,22 @@ from server.mcp_tools.tools import ToolCore
 from server.retrieval.fewshot import FewShotStore
 from server.retrieval.linking import SchemaLinker
 
+# 多轮追问的通用引导：仅在有"上一轮分析"上下文时追加，普通单轮问题不触发。
+FOLLOWUP_GUIDANCE = (
+    "若上方提供了“上一轮分析”与“对话上下文”，当前问题可能是对上一轮结果的追问或修改"
+    "（如“第二个 / 最高的是谁 / 比较一下 / 只看前 N / 换成饼图或柱状图”等指代）。"
+    "请基于上一轮的 SQL 与结果做增量调整，不要生成与上一轮无关的全新查询；"
+    "若只是改变图表类型或 TopN 条数，相应调整 LIMIT/图表即可。"
+)
 
-def _rows_to_markdown(columns: list[str], rows: list[list], max_rows: int = 15) -> str:
-    if not columns:
-        return "（空结果）"
-    shown = rows[:max_rows]
-    head = "| " + " | ".join(columns) + " |"
-    sep = "|" + "---|" * len(columns)
-    body = "\n".join("| " + " | ".join(str(v) for v in r) + " |" for r in shown)
-    tail = f"\n（仅展示前 {len(shown)} 行，共 {len(rows)} 行）" if len(rows) > max_rows else ""
-    return f"{head}\n{sep}\n{body}{tail}"
+
+def _format_history(history: list[dict]) -> str:
+    """把 {role, content} 历史转成可读的对话片段（比裸 JSON 更利于模型理解指代）。"""
+    lines = []
+    for m in history:
+        role = "用户" if m.get("role") == "user" else "助手"
+        lines.append(f"{role}：{m.get('content', '')}")
+    return "\n".join(lines)
 
 
 class ChatBIPipeline:
@@ -192,7 +199,10 @@ class ChatBIPipeline:
         if state.get("repair_round", 0) > 0 and state.get("sql_error"):
             user_parts.append(REPAIR_USER.format(sql=state.get("sql", ""), error=state["sql_error"]))
         if state.get("history"):
-            user_parts.append("对话历史：" + json.dumps(state["history"], ensure_ascii=False))
+            user_parts.append("对话上下文：\n" + _format_history(state["history"]))
+        if state.get("context"):
+            user_parts.append("上一轮分析：\n" + context_to_prompt(state["context"]))
+            user_parts.append(FOLLOWUP_GUIDANCE)
         user_parts.append(f"用户问题：{state['question']}")
 
         messages = [
@@ -246,18 +256,19 @@ class ChatBIPipeline:
                 "chart": "table",
                 **self._trace(state, "report: degraded 兜底"),
             }
-        table_md = _rows_to_markdown(result["columns"], result["rows"])
+        table_md = rows_to_markdown(result["columns"], result["rows"], max_rows=15) or "（空结果）"
+        user_content = REPORT_USER.format(
+            question=state["question"],
+            rowcount=result.get("rowcount", 0),
+            shown=min(len(result.get("rows", [])), 15),
+            table_md=table_md,
+        )
+        if state.get("context"):
+            user_content += "\n\n上一轮分析：\n" + context_to_prompt(state["context"])
+            user_content += "\n" + FOLLOWUP_GUIDANCE
         messages = [
             {"role": "system", "content": REPORT_SYSTEM},
-            {
-                "role": "user",
-                "content": REPORT_USER.format(
-                    question=state["question"],
-                    rowcount=result.get("rowcount", 0),
-                    shown=min(len(result.get("rows", [])), 15),
-                    table_md=table_md,
-                ),
-            },
+            {"role": "user", "content": user_content},
         ]
         resp, updates = self._chat(state, "report", messages)
         chart = "table"
@@ -287,8 +298,13 @@ class ChatBIPipeline:
         return "report"
 
     # ------------------------------------------------------------------ 对外接口
-    def run(self, question: str, history: list[dict] | None = None) -> dict[str, Any]:
-        final: ChatBIState = self._graph.invoke(new_state(question, history))
+    def run(
+        self,
+        question: str,
+        history: list[dict] | None = None,
+        context: dict | None = None,
+    ) -> dict[str, Any]:
+        final: ChatBIState = self._graph.invoke(new_state(question, history, context))
         return dict(final)
 
 

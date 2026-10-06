@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from server.agents.pipeline import ChatBIPipeline
 from server.core.database import DuckDBAdapter
-from server.core.llm import MockLLMClient
+from server.core.llm import LLMResponse, MockLLMClient
 from server.mcp_tools.tools import ToolCore
 
 
@@ -60,3 +60,77 @@ def test_ablation_flags_disable_components(adapter, tools):
     assert state["fewshot_pairs"] == []
     # 全量 schema 兜底路径仍可执行
     assert state["executed"] is True
+
+
+class _RecordingLLM:
+    """记录每次 chat 调用消息的假 LLM：生成阶段返回固定可执行 SQL，报告阶段返回固定结论。"""
+
+    def __init__(self):
+        self.calls: list[list[dict]] = []
+
+    def chat(self, messages, temperature=0.0, max_tokens=1024):
+        self.calls.append(messages)
+        last = messages[-1]["content"]
+        if "请按系统要求输出分析报告" in last:
+            text = "结论正确，无需改动。\n图表类型：bar"
+        else:
+            text = "```sql\nSELECT 1 AS x\n```"
+        return LLMResponse(text=text, prompt_tokens=1, completion_tokens=1, latency_ms=0)
+
+
+def test_followup_context_is_threaded_into_generate_and_report(tools):
+    """追问场景：结构化上下文 + 历史应同时进入 generate 与 report 的提示词。"""
+    llm = _RecordingLLM()
+    pipe = ChatBIPipeline(
+        tools=tools,
+        llm=llm,
+        linker=None,
+        fewshot=None,
+        enable_clarify=False,
+        enable_linking=False,
+        enable_fewshot=False,
+    )
+    ctx = {
+        "question": "各品类销售额",
+        "sql": "SELECT category, SUM(amount) FROM orders GROUP BY category",
+        "chart": "bar",
+        "columns": ["category", "sum(amount)"],
+        "rows": [["A", 100]],
+        "rowcount": 1,
+        "tables": ["orders"],
+    }
+    state = pipe.run(
+        "只看前 3 个",
+        history=[{"role": "user", "content": "各品类销售额"}],
+        context=ctx,
+    )
+    assert state["executed"] is True
+    assert len(llm.calls) == 2  # generate + report
+
+    generate_user = llm.calls[0][-1]["content"]
+    assert "上一轮分析" in generate_user
+    assert ctx["sql"] in generate_user
+    assert "只看前 3 个" in generate_user
+    assert "用户：各品类销售额" in generate_user  # 历史已读入
+
+    report_user = llm.calls[1][-1]["content"]
+    assert "上一轮分析" in report_user
+    assert ctx["sql"] in report_user
+
+
+def test_plain_question_does_not_inject_followup_guidance(tools):
+    """单轮问题（无 context）不应出现追问引导，保持现有行为不变。"""
+    llm = _RecordingLLM()
+    pipe = ChatBIPipeline(
+        tools=tools,
+        llm=llm,
+        linker=None,
+        fewshot=None,
+        enable_clarify=False,
+        enable_linking=False,
+        enable_fewshot=False,
+    )
+    pipe.run("总订单数是多少")
+    generate_user = llm.calls[0][-1]["content"]
+    assert "上一轮分析" not in generate_user
+    assert "对话上下文" not in generate_user
